@@ -2,7 +2,8 @@
 
 int eval();
 
-int main() {
+int main()
+{
         int x = eval();
         printf("output: %d", x);
 }
