@@ -71,6 +71,34 @@ func getNumber(s *scanner) (n int, err error) {
 	return n, nil
 }
 
+func getFactor(s *scanner) (err error) {
+	skipSpaces(s)
+	if s.Peek() == "(" {
+		s.Pop()
+		getExpression(s)
+		if s.Pop() != ")" {
+			return errors.New("invalid paranthesis")
+		}
+	} else if s.Peek() == "+" || s.Peek() == "-" {
+		op := s.Pop()
+		getExpression(s)
+		if op == "-" {
+			emitln(`	popq	%rdi`)
+			emitln(`	movq	$-1, %rax`)
+			emitln(`	imulq	%rax, %rdi`)
+			emitln(`	pushq	%rdi`)
+		}
+		return nil
+	} else {
+		n, err := getNumber(s)
+		if err != nil {
+			return err
+		}
+		emitln(fmt.Sprintf("pushq $%d", n))
+	}
+	return nil
+}
+
 func getOPAdd(s *scanner) (op string, err error) {
 	skipSpaces(s)
 	c := s.Peek()
@@ -118,21 +146,20 @@ func skipSpaces(s *scanner) {
 // getTerm parses a term and puts the result of the expression on top of stack
 // A term is an expression with * or /
 func getTerm(s *scanner) error {
-	n, err := getNumber(s)
+	err := getFactor(s)
 	if err != nil {
 		return fmt.Errorf("invalid input: %w", err)
 	}
-	emitln(fmt.Sprintf(`	pushq	$%d`, n))
 	for {
 		op, err := getOPMul(s)
 		if err != nil {
 			return nil
 		}
-		n, err = getNumber(s)
+		err = getFactor(s)
 		if err != nil {
 			return fmt.Errorf("expected number: %w", err)
 		}
-		emitln(fmt.Sprintf(`	movq	$%d, %%rdi`, n))
+		emitln(`	popq	%rdi`)
 		emitln(`	popq	%rax`)
 		emitln(`	cqto`)
 		if op == "*" {
@@ -144,7 +171,8 @@ func getTerm(s *scanner) error {
 	}
 }
 
-func parse(s *scanner) error {
+func getExpression(s *scanner) error {
+	skipSpaces(s)
 	err := getTerm(s)
 	if err != nil {
 		return fmt.Errorf("invalid input: %w", err)
@@ -181,7 +209,7 @@ eval:`)
 	s := bufio.NewScanner(os.Stdin)
 	s.Split(bufio.ScanRunes)
 	ss := &scanner{s: s}
-	if err := parse(ss); err != nil {
+	if err := getExpression(ss); err != nil {
 		fmt.Println(err)
 		return
 	}
