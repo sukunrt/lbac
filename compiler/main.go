@@ -20,15 +20,20 @@ type scanner struct {
 	next string
 }
 
-func (s *scanner) peek() string {
+func newScanner(s *bufio.Scanner) *scanner {
+	s.Split(bufio.ScanRunes)
+	return &scanner{s: s, next: ""}
+}
+
+func (s *scanner) Peek() string {
 	if s.next == "" {
 		s.advance()
 	}
 	return s.next
 }
 
-func (s *scanner) pop() string {
-	t := s.peek()
+func (s *scanner) Pop() string {
+	t := s.Peek()
 	s.advance()
 	return t
 }
@@ -41,43 +46,40 @@ func (s *scanner) advance() {
 func getNumber(s *scanner) (n int, err error) {
 	skipSpaces(s)
 	var started bool
-	var breakCond string
+	var isEOF bool
 	for {
-		c := s.peek()
+		c := s.Peek()
 		if c == "" {
-			breakCond = "EOF"
+			isEOF = true
 			break
 		}
-		started = true
 		if c[0] >= '0' && c[0] <= '9' {
+			started = true
 			n = n*10 + int(c[0]-'0')
-			s.pop()
+			s.Pop()
 			continue
-		} else {
-			breakCond = "INVALID CHAR"
-			break
 		}
+		break
 	}
 	if !started {
-		if breakCond == "EOF" {
+		if isEOF {
 			return 0, io.EOF
 		} else {
 			return 0, errors.New("NAN")
 		}
-	} else {
-		return n, nil
 	}
+	return n, nil
 }
 
 func getOPAdd(s *scanner) (op string, err error) {
 	skipSpaces(s)
-	c := s.peek()
+	c := s.Peek()
 	if c == "" {
 		return "", io.EOF
 	}
 	switch c {
 	case "+", "-":
-		s.pop()
+		s.Pop()
 		return c, nil
 	default:
 		return "", fmt.Errorf("invalid token %s", c)
@@ -86,13 +88,13 @@ func getOPAdd(s *scanner) (op string, err error) {
 
 func getOPMul(s *scanner) (op string, err error) {
 	skipSpaces(s)
-	c := s.peek()
+	c := s.Peek()
 	if c == "" {
 		return "", io.EOF
 	}
 	switch c {
 	case "*", "/":
-		s.pop()
+		s.Pop()
 		return c, nil
 	default:
 		return "", fmt.Errorf("invalid token %s", c)
@@ -101,14 +103,14 @@ func getOPMul(s *scanner) (op string, err error) {
 
 func skipSpaces(s *scanner) {
 	for {
-		c := s.peek()
+		c := s.Peek()
 		if c == "" {
 			return
 		} else if unicode.IsSpace(rune(c[0])) {
-			s.pop()
+			s.Pop()
 			continue
 		} else {
-			break
+			return
 		}
 	}
 }
@@ -120,8 +122,7 @@ func getTerm(s *scanner) error {
 	if err != nil {
 		return fmt.Errorf("invalid input: %w", err)
 	}
-	emitln(fmt.Sprintf("\tmov\tx0, #%d", n))
-	emitln(fmt.Sprintf("\tstr\tx0, [sp, -16]!"))
+	emitln(fmt.Sprintf(`	pushq	$%d`, n))
 	for {
 		op, err := getOPMul(s)
 		if err != nil {
@@ -131,14 +132,15 @@ func getTerm(s *scanner) error {
 		if err != nil {
 			return fmt.Errorf("expected number: %w", err)
 		}
-		emitln(fmt.Sprintf("\tmov\tx1, #%d", n))
-		emitln(fmt.Sprintf("\tldr\tx0, [sp], 16"))
+		emitln(fmt.Sprintf(`	movq	$%d, %%rdi`, n))
+		emitln(`	popq	%rax`)
+		emitln(`	cqto`)
 		if op == "*" {
-			emitln(fmt.Sprintf("\tmul\tx0, x1, x0"))
+			emitln(`	imulq	%rdi, %rax`)
 		} else {
-			emitln(fmt.Sprintf("\tsdiv\tx0, x0, x1"))
+			emitln(`	idivq	%rdi`)
 		}
-		emitln(fmt.Sprintf("\tstr\tx0, [sp, -16]!"))
+		emitln(`	pushq	%rax`)
 	}
 }
 
@@ -158,23 +160,24 @@ func parse(s *scanner) error {
 		if err != nil {
 			return fmt.Errorf("expected number: %w", err)
 		}
-		emitln(fmt.Sprintf("\tldr\tx1, [sp], 16"))
-		emitln(fmt.Sprintf("\tldr\tx0, [sp], 16"))
+		emitln(`	popq	%rdi`)
+		emitln(`	popq	%rax`)
 		if op == "+" {
-			emitln(fmt.Sprintf("\tadd\tx0, x1, x0"))
+			emitln(`	addq 	%rdi, %rax`)
 		} else {
-			emitln(fmt.Sprintf("\tsub\tx0, x0, x1"))
+			emitln(`	subq	%rdi, %rax`)
 		}
-		emitln(fmt.Sprintf("\tstr\tx0, [sp, -16]!"))
+		emitln(`	pushq %rax`)
 	}
 }
 
 func main() {
-	emitln("\t.section\t__TEXT,__text,regular,pure_instructions")
-	emitln("\t.globl _eval")
-	emitln("\t.p2align\t2")
-	emitln("_eval:")
-	emitln("\t.cfi_startproc")
+	emitln(`	.text
+	.file	"sm.c"
+	.globl	eval                            # -- Begin function eval
+	.p2align	4, 0x90
+	.type	eval,@function
+eval:`)
 	s := bufio.NewScanner(os.Stdin)
 	s.Split(bufio.ScanRunes)
 	ss := &scanner{s: s}
@@ -182,10 +185,15 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	emitln("\tldr\tx0, [sp], 16")
-	emitln("\tret")
-	emitln("\t.cfi_endproc")
-	emitln(".subsections_via_symbols")
+	emitln(`	popq %rax`)
+	emitln(`	retq
+.Lfunc_end0:
+	.size	eval, .Lfunc_end0-eval
+					# -- End function
+	.ident	"clang version 16.0.6"
+	.section	".note.GNU-stack","",@progbits
+	.addrsig
+	`)
 	for _, s := range lines {
 		fmt.Println(s)
 	}

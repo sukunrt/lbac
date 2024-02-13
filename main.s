@@ -1,34 +1,41 @@
-	.section	__TEXT,__text,regular,pure_instructions
-	.build_version macos, 13, 0	sdk_version 13, 1
-	.globl	_main                           ; -- Begin function main
-	.p2align	2
-_main:                                  ; @main
+	.text
+	.file	"main.c"
+	.globl	main                            # -- Begin function main
+	.p2align	4, 0x90
+	.type	main,@function
+main:                                   # @main
 	.cfi_startproc
-; %bb.0:
-	sub	sp, sp, #32
-	stp	x29, x30, [sp, #16]             ; 16-byte Folded Spill
-	add	x29, sp, #16
-	.cfi_def_cfa w29, 16
-	.cfi_offset w30, -8
-	.cfi_offset w29, -16
-	bl	_eval
-	stur	w0, [x29, #-4]
-	ldur	w9, [x29, #-4]
-                                        ; implicit-def: $x8
-	mov	x8, x9
-	mov	x9, sp
-	str	x8, [x9]
-	adrp	x0, l_.str@PAGE
-	add	x0, x0, l_.str@PAGEOFF
-	bl	_printf
-	mov	w0, #0
-	ldp	x29, x30, [sp, #16]             ; 16-byte Folded Reload
-	add	sp, sp, #32
-	ret
+# %bb.0:
+	pushq	%rbp
+	.cfi_def_cfa_offset 16
+	.cfi_offset %rbp, -16
+	movq	%rsp, %rbp
+	.cfi_def_cfa_register %rbp
+	subq	$16, %rsp
+	movb	$0, %al
+	callq	eval@PLT
+	movl	%eax, -4(%rbp)
+	movl	-4(%rbp), %esi
+	leaq	.L.str(%rip), %rdi
+	movb	$0, %al
+	callq	printf@PLT
+	xorl	%eax, %eax
+	addq	$16, %rsp
+	popq	%rbp
+	.cfi_def_cfa %rsp, 8
+	retq
+.Lfunc_end0:
+	.size	main, .Lfunc_end0-main
 	.cfi_endproc
-                                        ; -- End function
-	.section	__TEXT,__cstring,cstring_literals
-l_.str:                                 ; @.str
+                                        # -- End function
+	.type	.L.str,@object                  # @.str
+	.section	.rodata.str1.1,"aMS",@progbits,1
+.L.str:
 	.asciz	"output: %d"
+	.size	.L.str, 11
 
-.subsections_via_symbols
+	.ident	"clang version 16.0.6"
+	.section	".note.GNU-stack","",@progbits
+	.addrsig
+	.addrsig_sym eval
+	.addrsig_sym printf
