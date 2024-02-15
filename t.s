@@ -4,25 +4,26 @@
 	.p2align	4, 0x90
 	.type	eval,@function
 eval:
-pushq $1
-pushq $1
-	popq	%rdi
-	popq	%rax
+	pushq	%rbp
+	movq	%rsp, %rbp
+	
+pushq	$100
+pushq	$23
+pushq	$20
+pushq	-24(%rbp)
+pushq	-16(%rbp)
+popq	%rdi
+popq	%rax
 	addq 	%rdi, %rax
-	pushq %rax
-pushq $1
-pushq $10
-	popq	%rdi
-	popq	%rax
-	cqto
-	imulq	%rdi, %rax
-	pushq	%rax
-	popq	%rdi
-	popq	%rax
-	cqto
-	imulq	%rdi, %rax
-	pushq	%rax
-	popq %rax
+pushq	%rax
+pushq	$20
+popq	%rdi
+popq	%rax
+	subq	%rdi, %rax
+pushq	%rax
+popq	%rax
+	movq %rbp, %rsp
+	popq %rbp
 	retq
 .Lfunc_end0:
 	.size	eval, .Lfunc_end0-eval

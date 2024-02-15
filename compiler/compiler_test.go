@@ -27,6 +27,14 @@ func TestCorrectness(t *testing.T) {
 			input:  "(1+1)*(1*10)",
 			output: 20,
 		},
+		{
+			input:  "(1+0+1)/(-2)",
+			output: -1,
+		},
+		{
+			input:  "1\n   1   \n(2+3)",
+			output: 5,
+		},
 	}
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {

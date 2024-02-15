@@ -7,12 +7,27 @@ import (
 	"io"
 	"os"
 	"unicode"
+	"unicode/utf8"
 )
 
 var lines []string
 
 func emitln(s string) {
 	lines = append(lines, s)
+}
+
+var sp int
+
+var variables = map[string]int{}
+
+func push(s string) {
+	sp++
+	emitln(fmt.Sprintf("pushq	%s", s))
+}
+
+func pop(s string) {
+	sp--
+	emitln(fmt.Sprintf("popq	%s", s))
 }
 
 type scanner struct {
@@ -64,37 +79,86 @@ func getNumber(s *scanner) (n int, err error) {
 	if !started {
 		if isEOF {
 			return 0, io.EOF
-		} else {
-			return 0, errors.New("NAN")
 		}
+		return 0, errors.New("NAN")
 	}
 	return n, nil
 }
 
+func getVariable(s *scanner) (res string, err error) {
+	var started bool
+	var isEOF bool
+	for {
+		c := s.Peek()
+		if c == "" {
+			isEOF = true
+			break
+		}
+		r, _ := utf8.DecodeRuneInString(c)
+		if unicode.IsDigit(r) || unicode.IsLetter(r) || c == "_" {
+			started = true
+			res += c
+			s.Pop()
+			continue
+		}
+		break
+	}
+	if !started {
+		if isEOF {
+			return "", io.EOF
+		}
+		return "", errors.New("not a variable")
+	}
+	return res, nil
+}
+
 func getFactor(s *scanner) (err error) {
 	skipSpaces(s)
-	if s.Peek() == "(" {
+	if s.Peek() == "" {
+		return io.EOF
+	}
+	r, _ := utf8.DecodeRuneInString(s.Peek())
+	switch {
+	case r == '(':
 		s.Pop()
 		getExpression(s)
 		if s.Pop() != ")" {
 			return errors.New("invalid paranthesis")
 		}
-	} else if s.Peek() == "+" || s.Peek() == "-" {
+	case r == '+' || r == '-':
 		op := s.Pop()
 		getExpression(s)
 		if op == "-" {
 			emitln(`	popq	%rdi`)
 			emitln(`	movq	$-1, %rax`)
 			emitln(`	imulq	%rax, %rdi`)
-			emitln(`	pushq	%rdi`)
+			push("%rdi")
 		}
 		return nil
-	} else {
+	case unicode.IsNumber(r):
 		n, err := getNumber(s)
 		if err != nil {
 			return err
 		}
-		emitln(fmt.Sprintf("pushq $%d", n))
+		push(fmt.Sprintf("$%d", n))
+		return nil
+	case unicode.IsLetter(r):
+		v, err := getVariable(s)
+		if err != nil {
+			return err
+		}
+		skipSpaces(s)
+		if s.Peek() == "=" {
+			s.Pop()
+			getExpression(s)
+			variables[v] = sp
+		} else {
+			if _, ok := variables[v]; !ok {
+				return fmt.Errorf("invalid variable %s", v)
+			}
+			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
+		}
+		return nil
 	}
 	return nil
 }
@@ -134,7 +198,7 @@ func skipSpaces(s *scanner) {
 		c := s.Peek()
 		if c == "" {
 			return
-		} else if unicode.IsSpace(rune(c[0])) {
+		} else if unicode.IsSpace(rune(c[0])) && c != "\n" {
 			s.Pop()
 			continue
 		} else {
@@ -159,15 +223,15 @@ func getTerm(s *scanner) error {
 		if err != nil {
 			return fmt.Errorf("expected number: %w", err)
 		}
-		emitln(`	popq	%rdi`)
-		emitln(`	popq	%rax`)
+		pop("%rdi")
+		pop("%rax")
 		emitln(`	cqto`)
 		if op == "*" {
 			emitln(`	imulq	%rdi, %rax`)
 		} else {
 			emitln(`	idivq	%rdi`)
 		}
-		emitln(`	pushq	%rax`)
+		push("%rax")
 	}
 }
 
@@ -178,6 +242,9 @@ func getExpression(s *scanner) error {
 		return fmt.Errorf("invalid input: %w", err)
 	}
 	for {
+		if s.Peek() == "\n" {
+			return nil
+		}
 		op, err := getOPAdd(s)
 		if err == io.EOF {
 			return nil
@@ -188,14 +255,14 @@ func getExpression(s *scanner) error {
 		if err != nil {
 			return fmt.Errorf("expected number: %w", err)
 		}
-		emitln(`	popq	%rdi`)
-		emitln(`	popq	%rax`)
+		pop("%rdi")
+		pop("%rax")
 		if op == "+" {
 			emitln(`	addq 	%rdi, %rax`)
 		} else {
 			emitln(`	subq	%rdi, %rax`)
 		}
-		emitln(`	pushq %rax`)
+		push("%rax")
 	}
 }
 
@@ -207,15 +274,24 @@ func main() {
 	.type	eval,@function
 eval:
 	pushq	%rbp
+	movq	%rsp, %rbp
 	`)
 	s := bufio.NewScanner(os.Stdin)
 	s.Split(bufio.ScanRunes)
 	ss := &scanner{s: s}
-	if err := getExpression(ss); err != nil {
-		fmt.Println(err)
-		return
+	for ss.Peek() != "" {
+		err := getExpression(ss)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		if ss.Peek() == "\n" {
+			ss.Pop()
+		}
 	}
-	emitln(`	popq %rax`)
+	pop("%rax")
+	emitln(`	movq %rbp, %rsp`)
+	emitln(`	popq %rbp`)
 	emitln(`	retq
 .Lfunc_end0:
 	.size	eval, .Lfunc_end0-eval
