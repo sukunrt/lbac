@@ -4,20 +4,24 @@
 	.p2align	4, 0x90
 	.type	eval,@function
 eval:
-pushq $2
-pushq $3
-	popq	%rdi
-	movq	$-1, %rax
-	imulq	%rax, %rdi
-	pushq	%rdi
+pushq $1
+pushq $1
 	popq	%rdi
 	popq	%rax
 	addq 	%rdi, %rax
 	pushq %rax
+pushq $1
+pushq $10
 	popq	%rdi
-	movq	$-1, %rax
-	imulq	%rax, %rdi
-	pushq	%rdi
+	popq	%rax
+	cqto
+	imulq	%rdi, %rax
+	pushq	%rax
+	popq	%rdi
+	popq	%rax
+	cqto
+	imulq	%rdi, %rax
+	pushq	%rax
 	popq %rax
 	retq
 .Lfunc_end0:

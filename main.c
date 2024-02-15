@@ -5,5 +5,5 @@ int eval();
 int main()
 {
         int x = eval();
-        printf("output: %d", x);
+        printf("%d\n", x);
 }

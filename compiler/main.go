@@ -205,7 +205,9 @@ func main() {
 	.globl	eval                            # -- Begin function eval
 	.p2align	4, 0x90
 	.type	eval,@function
-eval:`)
+eval:
+	pushq	%rbp
+	`)
 	s := bufio.NewScanner(os.Stdin)
 	s.Split(bufio.ScanRunes)
 	ss := &scanner{s: s}
