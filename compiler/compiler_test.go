@@ -35,6 +35,25 @@ func TestCorrectness(t *testing.T) {
 			input:  "1\n   1   \n(2+3)",
 			output: 5,
 		},
+		{
+			input: `
+			x=5
+			y=15
+			z=2
+			(x+y-10)/z + 1
+			`,
+			output: 6,
+		},
+		{
+			input: `
+			x=5
+			y=15
+			z=2
+			x=15
+			(x+y-10)/z + 1
+			`,
+			output: 11,
+		},
 	}
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {

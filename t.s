@@ -7,19 +7,37 @@ eval:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	
-pushq	$100
-pushq	$23
-pushq	$20
-pushq	-24(%rbp)
+pushq	$5
+pushq	$15
+pushq	$2
+pushq	$15
+pushq	-32(%rbp)
 pushq	-16(%rbp)
+pushq	$10
+popq	%rdi
+popq	%rax
+	subq	%rdi, %rax
+pushq	%rax
 popq	%rdi
 popq	%rax
 	addq 	%rdi, %rax
 pushq	%rax
-pushq	$20
+pushq	-24(%rbp)
 popq	%rdi
 popq	%rax
-	subq	%rdi, %rax
+cqto
+	idivq	%rdi
+pushq	%rax
+pushq	$1
+popq	%rdi
+popq	%rax
+	addq 	%rdi, %rax
+pushq	%rax
+popq	%rax
+	movq	%rbp, %rdi
+	movq	$0, %rbx
+	subq	%rbx, %rdi
+	movq	%rdi, %rsp
 pushq	%rax
 popq	%rax
 	movq %rbp, %rsp

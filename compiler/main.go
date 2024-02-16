@@ -112,87 +112,6 @@ func getVariable(s *scanner) (res string, err error) {
 	return res, nil
 }
 
-func getFactor(s *scanner) (err error) {
-	skipSpaces(s)
-	if s.Peek() == "" {
-		return io.EOF
-	}
-	r, _ := utf8.DecodeRuneInString(s.Peek())
-	switch {
-	case r == '(':
-		s.Pop()
-		getExpression(s)
-		if s.Pop() != ")" {
-			return errors.New("invalid paranthesis")
-		}
-	case r == '+' || r == '-':
-		op := s.Pop()
-		getExpression(s)
-		if op == "-" {
-			emitln(`	popq	%rdi`)
-			emitln(`	movq	$-1, %rax`)
-			emitln(`	imulq	%rax, %rdi`)
-			push("%rdi")
-		}
-		return nil
-	case unicode.IsNumber(r):
-		n, err := getNumber(s)
-		if err != nil {
-			return err
-		}
-		push(fmt.Sprintf("$%d", n))
-		return nil
-	case unicode.IsLetter(r):
-		v, err := getVariable(s)
-		if err != nil {
-			return err
-		}
-		skipSpaces(s)
-		if s.Peek() == "=" {
-			s.Pop()
-			getExpression(s)
-			variables[v] = sp
-		} else {
-			if _, ok := variables[v]; !ok {
-				return fmt.Errorf("invalid variable %s", v)
-			}
-			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
-		}
-		return nil
-	}
-	return nil
-}
-
-func getOPAdd(s *scanner) (op string, err error) {
-	skipSpaces(s)
-	c := s.Peek()
-	if c == "" {
-		return "", io.EOF
-	}
-	switch c {
-	case "+", "-":
-		s.Pop()
-		return c, nil
-	default:
-		return "", fmt.Errorf("invalid token %s", c)
-	}
-}
-
-func getOPMul(s *scanner) (op string, err error) {
-	skipSpaces(s)
-	c := s.Peek()
-	if c == "" {
-		return "", io.EOF
-	}
-	switch c {
-	case "*", "/":
-		s.Pop()
-		return c, nil
-	default:
-		return "", fmt.Errorf("invalid token %s", c)
-	}
-}
-
 func skipSpaces(s *scanner) {
 	for {
 		c := s.Peek()
@@ -207,63 +126,115 @@ func skipSpaces(s *scanner) {
 	}
 }
 
-// getTerm parses a term and puts the result of the expression on top of stack
-// A term is an expression with * or /
-func getTerm(s *scanner) error {
-	err := getFactor(s)
-	if err != nil {
-		return fmt.Errorf("invalid input: %w", err)
+func ifStmt(s *scanner) error {
+	return nil
+}
+
+func expr(s *scanner, onlyOne bool) error {
+	skipSpaces(s)
+	if s.Peek() == "" || s.Peek() == "\n" {
+		return io.EOF
+	}
+	r, _ := utf8.DecodeRuneInString(s.Peek())
+	switch {
+	case r == '(':
+		s.Pop()
+		expr(s, false)
+		if s.Pop() != ")" {
+			return errors.New("invalid paranthesis")
+		}
+	case r == '+' || r == '-':
+		op := s.Pop()
+		expr(s, false)
+		if op == "-" {
+			pop("%rdi")
+			emitln(`	movq	$-1, %rax`)
+			emitln(`	imulq	%rax, %rdi`)
+			push("%rdi")
+		}
+	case unicode.IsNumber(r):
+		n, err := getNumber(s)
+		if err != nil {
+			return err
+		}
+		push(fmt.Sprintf("$%d", n))
+	case unicode.IsLetter(r):
+		v, err := getVariable(s)
+		if err != nil {
+			return err
+		}
+		if v == "IF" {
+			return ifStmt(s)
+		}
+		skipSpaces(s)
+		if s.Peek() == "=" {
+			s.Pop()
+			expr(s, false)
+			variables[v] = sp
+			return nil
+		} else {
+			if _, ok := variables[v]; !ok {
+				return fmt.Errorf("invalid variable %s", v)
+			}
+			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
+		}
+	}
+	if onlyOne {
+		return nil
 	}
 	for {
-		op, err := getOPMul(s)
-		if err != nil {
+		skipSpaces(s)
+		op := s.Peek()
+		switch op {
+		case "+", "-":
+			s.Pop()
+			expr(s, false)
+			pop("%rdi")
+			pop("%rax")
+			if op == "+" {
+				emitln(`	addq 	%rdi, %rax`)
+			} else {
+				emitln(`	subq	%rdi, %rax`)
+			}
+			push("%rax")
+		case "*", "/":
+			s.Pop()
+			expr(s, true)
+			pop("%rdi")
+			pop("%rax")
+			if op == "*" {
+				emitln(`	imulq 	%rdi, %rax`)
+			} else {
+				emitln(`cqto`)
+				emitln(`	idivq	%rdi`)
+			}
+			push("%rax")
+		case "\n", "", ")":
 			return nil
+		default:
+			return fmt.Errorf("invalid character: %v", s.Peek())
 		}
-		err = getFactor(s)
-		if err != nil {
-			return fmt.Errorf("expected number: %w", err)
-		}
-		pop("%rdi")
-		pop("%rax")
-		emitln(`	cqto`)
-		if op == "*" {
-			emitln(`	imulq	%rdi, %rax`)
-		} else {
-			emitln(`	idivq	%rdi`)
-		}
-		push("%rax")
 	}
 }
 
-func getExpression(s *scanner) error {
-	skipSpaces(s)
-	err := getTerm(s)
-	if err != nil {
-		return fmt.Errorf("invalid input: %w", err)
-	}
-	for {
+func block(s *scanner) {
+	st := sp
+	for s.Peek() != "" {
+		err := expr(s, false)
+		if err != nil && err != io.EOF {
+			fmt.Println(err)
+			return
+		}
 		if s.Peek() == "\n" {
-			return nil
+			s.Pop()
 		}
-		op, err := getOPAdd(s)
-		if err == io.EOF {
-			return nil
-		} else if err != nil {
-			return err
-		}
-		err = getTerm(s)
-		if err != nil {
-			return fmt.Errorf("expected number: %w", err)
-		}
-		pop("%rdi")
-		pop("%rax")
-		if op == "+" {
-			emitln(`	addq 	%rdi, %rax`)
-		} else {
-			emitln(`	subq	%rdi, %rax`)
-		}
-		push("%rax")
 	}
+	pop("%rax")
+	emitln(`	movq	%rbp, %rdi`)
+	emitln(fmt.Sprintf(`	movq	$%d, %%rbx`, 8*st))
+	emitln(`	subq	%rbx, %rdi`)
+	emitln(`	movq	%rdi, %rsp`)
+	push("%rax")
 }
 
 func main() {
@@ -279,16 +250,7 @@ eval:
 	s := bufio.NewScanner(os.Stdin)
 	s.Split(bufio.ScanRunes)
 	ss := &scanner{s: s}
-	for ss.Peek() != "" {
-		err := getExpression(ss)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		if ss.Peek() == "\n" {
-			ss.Pop()
-		}
-	}
+	block(ss)
 	pop("%rax")
 	emitln(`	movq %rbp, %rsp`)
 	emitln(`	popq %rbp`)

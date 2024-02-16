@@ -43,6 +43,14 @@ func TestGetNumber(t *testing.T) {
 				{i: 0, err: errors.New("NAN")},
 				{i: 0, err: io.EOF}},
 		},
+		{
+			s: "10pp",
+			expected: []result{
+				{i: 10},
+				{i: 0, err: errors.New("NAN")},
+				{i: 0, err: errors.New("NAN")},
+				{i: 0, err: io.EOF}},
+		},
 	}
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
