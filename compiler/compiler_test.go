@@ -54,6 +54,30 @@ func TestCorrectness(t *testing.T) {
 			`,
 			output: 11,
 		},
+		{
+			input: `
+			x=5
+			y=15
+			IF x-y
+			2+2
+			ELSE
+			2+3
+			ENDIF
+			`,
+			output: 4,
+		},
+		{
+			input: `
+			x=5
+			y=5
+			IF x-y
+			2+2
+			ELSE
+			2+3
+			ENDIF
+			`,
+			output: 5,
+		},
 	}
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {

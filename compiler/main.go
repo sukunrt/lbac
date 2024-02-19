@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 )
 
+var errEndIf = errors.New("found ENDIF in expr")
+
 var lines []string
 
 func emitln(s string) {
@@ -22,12 +24,19 @@ var variables = map[string]int{}
 
 func push(s string) {
 	sp++
-	emitln(fmt.Sprintf("pushq	%s", s))
+	emitln(fmt.Sprintf("\tpushq	%s", s))
 }
 
 func pop(s string) {
 	sp--
-	emitln(fmt.Sprintf("popq	%s", s))
+	emitln(fmt.Sprintf("\tpopq	%s", s))
+}
+
+var labelCnt int
+
+func newLabel() string {
+	defer func() { labelCnt++ }()
+	return fmt.Sprintf("JL%d", labelCnt)
 }
 
 type scanner struct {
@@ -127,13 +136,39 @@ func skipSpaces(s *scanner) {
 }
 
 func ifStmt(s *scanner) error {
+	skipSpaces(s)
+	if s.Peek() == "\n" || s.Peek() == "" {
+		return errors.New("empty expression in IF condition")
+	}
+	expr(s, false)
+	pop("%rax")
+	emitln("	cmpq	$0, %rax")
+	l := newLabel()
+	emitln(fmt.Sprintf("	je	%s", l))
+	nt := block(s)
+	switch nt {
+	case "ELSE":
+		el := newLabel()
+		emitln(fmt.Sprintf("	jmp	%s", el))
+		emitln(l + ":")
+		nt := block(s)
+		if nt != "ENDIF" {
+			return fmt.Errorf("expected ENDIF got %s", nt)
+		}
+		emitln(el + ":")
+	case "ENDIF":
+		emitln(l + ":")
+		return nil
+	default:
+		return fmt.Errorf("expected ENDIF or ELSE got %s", nt)
+	}
 	return nil
 }
 
-func expr(s *scanner, onlyOne bool) error {
+func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 	skipSpaces(s)
 	if s.Peek() == "" || s.Peek() == "\n" {
-		return io.EOF
+		return "", io.EOF
 	}
 	r, _ := utf8.DecodeRuneInString(s.Peek())
 	switch {
@@ -141,7 +176,7 @@ func expr(s *scanner, onlyOne bool) error {
 		s.Pop()
 		expr(s, false)
 		if s.Pop() != ")" {
-			return errors.New("invalid paranthesis")
+			return "", errors.New("invalid paranthesis")
 		}
 	case r == '+' || r == '-':
 		op := s.Pop()
@@ -155,32 +190,37 @@ func expr(s *scanner, onlyOne bool) error {
 	case unicode.IsNumber(r):
 		n, err := getNumber(s)
 		if err != nil {
-			return err
+			return "", err
 		}
 		push(fmt.Sprintf("$%d", n))
 	case unicode.IsLetter(r):
 		v, err := getVariable(s)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if v == "IF" {
-			return ifStmt(s)
+			return "", ifStmt(s)
+		}
+		if v == "ENDIF" || v == "ELSE" {
+			return v, nil
 		}
 		skipSpaces(s)
 		if s.Peek() == "=" {
 			s.Pop()
 			expr(s, false)
 			variables[v] = sp
-			return nil
+			return "", nil
 		} else {
 			if _, ok := variables[v]; !ok {
-				return fmt.Errorf("invalid variable %s", v)
+				return "", fmt.Errorf("invalid variable %s", v)
 			}
 			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
 		}
+	default:
+		return "", fmt.Errorf("invalid token %s", s.Peek())
 	}
 	if onlyOne {
-		return nil
+		return "", nil
 	}
 	for {
 		skipSpaces(s)
@@ -210,20 +250,24 @@ func expr(s *scanner, onlyOne bool) error {
 			}
 			push("%rax")
 		case "\n", "", ")":
-			return nil
+			return "", nil
 		default:
-			return fmt.Errorf("invalid character: %v", s.Peek())
+			return "", fmt.Errorf("invalid character: %v", s.Peek())
 		}
 	}
 }
 
-func block(s *scanner) {
+func block(s *scanner) (nextToken string) {
 	st := sp
+	var err error
 	for s.Peek() != "" {
-		err := expr(s, false)
+		nextToken, err = expr(s, false)
 		if err != nil && err != io.EOF {
-			fmt.Println(err)
+			fmt.Println("err:", err)
 			return
+		}
+		if nextToken != "" {
+			break
 		}
 		if s.Peek() == "\n" {
 			s.Pop()
@@ -235,6 +279,7 @@ func block(s *scanner) {
 	emitln(`	subq	%rbx, %rdi`)
 	emitln(`	movq	%rdi, %rsp`)
 	push("%rax")
+	return
 }
 
 func main() {
