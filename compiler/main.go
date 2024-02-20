@@ -165,6 +165,27 @@ func ifStmt(s *scanner) error {
 	return nil
 }
 
+func whileStmt(s *scanner) error {
+	skipSpaces(s)
+	if s.Peek() == "\n" || s.Peek() == "" {
+		return errors.New("empty expression in IF condition")
+	}
+	stL := newLabel()
+	emitln(stL + ":")
+	expr(s, false)
+	pop("%rax")
+	emitln("	cmpq	$0, %rax")
+	l := newLabel()
+	emitln(fmt.Sprintf("	je	%s", l))
+	nt := block(s)
+	if nt != "ENDWHILE" {
+		return fmt.Errorf("invalid end condition: expected ENDWHILE got: %s", nt)
+	}
+	emitln("	jmp	" + stL)
+	emitln(l + ":")
+	return nil
+}
+
 func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 	skipSpaces(s)
 	if s.Peek() == "" || s.Peek() == "\n" {
@@ -201,14 +222,22 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 		if v == "IF" {
 			return "", ifStmt(s)
 		}
-		if v == "ENDIF" || v == "ELSE" {
+		if v == "WHILE" {
+			return "", whileStmt(s)
+		}
+		if v == "ENDIF" || v == "ELSE" || v == "ENDWHILE" {
 			return v, nil
 		}
 		skipSpaces(s)
 		if s.Peek() == "=" {
 			s.Pop()
 			expr(s, false)
-			variables[v] = sp
+			if p, ok := variables[v]; ok {
+				pop("%rax")
+				emitln(fmt.Sprintf("	movq	%%rax, -%d(%%rbp)", 8*p))
+			} else {
+				variables[v] = sp
+			}
 			return "", nil
 		} else {
 			if _, ok := variables[v]; !ok {
@@ -245,7 +274,7 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 			if op == "*" {
 				emitln(`	imulq 	%rdi, %rax`)
 			} else {
-				emitln(`cqto`)
+				emitln(`	cqto`)
 				emitln(`	idivq	%rdi`)
 			}
 			push("%rax")
@@ -258,7 +287,6 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 }
 
 func block(s *scanner) (nextToken string) {
-	st := sp
 	var err error
 	for s.Peek() != "" {
 		nextToken, err = expr(s, false)
@@ -273,12 +301,12 @@ func block(s *scanner) (nextToken string) {
 			s.Pop()
 		}
 	}
-	pop("%rax")
-	emitln(`	movq	%rbp, %rdi`)
-	emitln(fmt.Sprintf(`	movq	$%d, %%rbx`, 8*st))
-	emitln(`	subq	%rbx, %rdi`)
-	emitln(`	movq	%rdi, %rsp`)
-	push("%rax")
+	// pop("%rax")
+	// emitln(`	movq	%rbp, %rdi`)
+	// emitln(fmt.Sprintf(`	movq	$%d, %%rbx`, 8*st))
+	// emitln(`	subq	%rbx, %rdi`)
+	// emitln(`	movq	%rdi, %rsp`)
+	// push("%rax")
 	return
 }
 

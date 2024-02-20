@@ -59,10 +59,11 @@ func TestCorrectness(t *testing.T) {
 			x=5
 			y=15
 			IF x-y
-			2+2
+				y=2+2
 			ELSE
-			2+3
+				y=2+3
 			ENDIF
+			y
 			`,
 			output: 4,
 		},
@@ -71,10 +72,22 @@ func TestCorrectness(t *testing.T) {
 			x=5
 			y=5
 			IF x-y
-			2+2
+				y=2+2
 			ELSE
-			2+3
+				y=2+3
 			ENDIF
+			y
+			`,
+			output: 5,
+		},
+		{
+			input: `
+			x=100
+			y=5
+			WHILE x-y
+				x = x-1
+			ENDWHILE
+			x
 			`,
 			output: 5,
 		},
