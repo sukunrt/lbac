@@ -7,29 +7,35 @@ eval:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	
-	pushq	$100
-	pushq	$5
-JL0:
-	pushq	-8(%rbp)
-	pushq	-16(%rbp)
-	popq	%rdi
-	popq	%rax
-	subq	%rdi, %rax
-	pushq	%rax
-	popq	%rax
-	cmpq	$0, %rax
-	je	JL1
-	pushq	-8(%rbp)
+	pushq	$1
 	pushq	$1
 	popq	%rdi
 	popq	%rax
-	subq	%rdi, %rax
+	addq	%rdi, %rax
 	pushq	%rax
+	pushq	$2
+	pushq	$2
+	popq	%rdi
 	popq	%rax
-	movq	%rax, -8(%rbp)
+	imulq	%rdi, %rax
+	pushq	%rax
+	pushq	$3
+	popq	%rdi
+	popq	%rdx
+	movq	$1, %rbx
+	movq	$1, %rax
+JL0:
+	cmp	$0, %rdi
+	je	JL1
+	imulq	%rdx, %rax
+	subq	%rbx, %rdi
 	jmp	JL0
 JL1:
-	pushq	-8(%rbp)
+	pushq	%rax
+	popq	%rdi
+	popq	%rax
+	imulq	%rdi, %rax
+	pushq	%rax
 	popq	%rax
 	movq	%rbp, %rsp
 	popq	%rbp

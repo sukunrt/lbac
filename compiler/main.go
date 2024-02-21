@@ -157,7 +157,7 @@ func ifStmt(s *scanner) error {
 	if s.Peek() == "\n" || s.Peek() == "" {
 		return errors.New("empty expression in IF condition")
 	}
-	expr(s, false)
+	expr(s, -1)
 	pop("%rax")
 	emitOp("cmpq", "$0", "%rax")
 	l := newLabel()
@@ -189,7 +189,7 @@ func whileStmt(s *scanner) error {
 	}
 	stL := newLabel()
 	emitOp(stL + ":")
-	expr(s, false)
+	expr(s, -1)
 	pop("%rax")
 	emitOp("cmpq", "$0", "%rax")
 	l := newLabel()
@@ -203,7 +203,65 @@ func whileStmt(s *scanner) error {
 	return nil
 }
 
-func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
+func addOp() {
+	pop("%rdi")
+	pop("%rax")
+	emitOp("addq", "%rdi", "%rax")
+	push("%rax")
+}
+
+func subOp() {
+	pop("%rdi")
+	pop("%rax")
+	emitOp("subq", "%rdi", "%rax")
+	push("%rax")
+}
+
+func mulOp() {
+	pop("%rdi")
+	pop("%rax")
+	emitOp("imulq", "%rdi", "%rax")
+	push("%rax")
+}
+
+func divOp() {
+	pop("%rdi")
+	pop("%rax")
+	emitOp("cqto")
+	emitOp("idivq", "%rdi")
+	push("%rax")
+}
+
+func expOp() {
+	sl := newLabel()
+	el := newLabel()
+	pop("%rdi")
+	pop("%rdx")
+	emitOp("movq", "$1", "%rbx")
+	emitOp("movq", "$1", "%rax")
+	emitOp(sl + ":")
+	emitOp("cmp", "$0", "%rdi")
+	emitOp("je", el)
+	emitOp("imulq", "%rdx", "%rax")
+	emitOp("subq", "%rbx", "%rdi")
+	emitOp("jmp", sl)
+	emitOp(el + ":")
+	push("%rax")
+}
+
+var bindingPower = map[string]int{
+	"+": 10,
+	"-": 10,
+	"*": 20,
+	"/": 20,
+	"^": 30,
+	// Terminating symbols
+	")":  -100,
+	"\n": -100,
+	"":   -100,
+}
+
+func expr(s *scanner, power int) (nextToken string, err error) {
 	skipSpaces(s)
 	if s.Peek() == "" || s.Peek() == "\n" {
 		return "", io.EOF
@@ -212,13 +270,13 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 	switch {
 	case r == '(':
 		s.Pop()
-		expr(s, false)
+		expr(s, -1)
 		if s.Pop() != ")" {
 			return "", errors.New("invalid paranthesis")
 		}
 	case r == '+' || r == '-':
 		op := s.Pop()
-		expr(s, false)
+		expr(s, power)
 		if op == "-" {
 			pop("%rdi")
 			emitOp("movq", "$-1", "%rax")
@@ -248,7 +306,7 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 		skipSpaces(s)
 		if s.Peek() == "=" {
 			s.Pop()
-			expr(s, false)
+			expr(s, -1)
 			if p, ok := variables[v]; ok {
 				pop("%rax")
 				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
@@ -265,40 +323,29 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 	default:
 		return "", fmt.Errorf("invalid token %s", s.Peek())
 	}
-	if onlyOne {
-		return "", nil
-	}
 	for {
 		skipSpaces(s)
 		op := s.Peek()
-		switch op {
-		case "+", "-":
-			s.Pop()
-			expr(s, false)
-			pop("%rdi")
-			pop("%rax")
-			if op == "+" {
-				emitOp("addq", "%rdi", "%rax")
-			} else {
-				emitOp("subq", "%rdi", "%rax")
-			}
-			push("%rax")
-		case "*", "/":
-			s.Pop()
-			expr(s, true)
-			pop("%rdi")
-			pop("%rax")
-			if op == "*" {
-				emitOp("imulq", "%rdi", "%rax")
-			} else {
-				emitOp("cqto")
-				emitOp("idivq", "%rdi")
-			}
-			push("%rax")
-		case "\n", "", ")":
+		p, ok := bindingPower[op]
+		if !ok {
+			return "", fmt.Errorf("invalid operation: %s", op)
+		}
+		if p <= power {
 			return "", nil
-		default:
-			return "", fmt.Errorf("invalid character: %v", s.Peek())
+		}
+		s.Pop()
+		expr(s, p)
+		switch op {
+		case "+":
+			addOp()
+		case "-":
+			subOp()
+		case "*":
+			mulOp()
+		case "/":
+			divOp()
+		case "^":
+			expOp()
 		}
 	}
 }
@@ -306,7 +353,7 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 func block(s *scanner) (nextToken string) {
 	var err error
 	for s.Peek() != "" {
-		nextToken, err = expr(s, false)
+		nextToken, err = expr(s, -1)
 		if err != nil && err != io.EOF {
 			fmt.Println("err:", err)
 			return
