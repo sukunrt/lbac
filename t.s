@@ -8,7 +8,7 @@ eval:
 	movq	%rsp, %rbp
 	
 	pushq	$100
-	pushq	$15
+	pushq	$5
 JL0:
 	pushq	-8(%rbp)
 	pushq	-16(%rbp)
@@ -20,7 +20,7 @@ JL0:
 	cmpq	$0, %rax
 	je	JL1
 	pushq	-8(%rbp)
-	pushq	$2
+	pushq	$1
 	popq	%rdi
 	popq	%rax
 	subq	%rdi, %rax
@@ -31,8 +31,8 @@ JL0:
 JL1:
 	pushq	-8(%rbp)
 	popq	%rax
-	movq %rbp, %rsp
-	popq %rbp
+	movq	%rbp, %rsp
+	popq	%rbp
 	retq
 .Lfunc_end0:
 	.size	eval, .Lfunc_end0-eval

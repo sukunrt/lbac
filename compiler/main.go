@@ -6,16 +6,33 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
-
-var errEndIf = errors.New("found ENDIF in expr")
 
 var lines []string
 
 func emitln(s string) {
 	lines = append(lines, s)
+}
+
+func emitOp(op string, operands ...string) {
+	sb := strings.Builder{}
+	if strings.HasSuffix(op, ":") {
+		sb.WriteString(op)
+	} else {
+		sb.WriteString("\t" + op)
+	}
+	for i, o := range operands {
+		if i == 0 {
+			sb.WriteString("\t")
+		} else {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(o)
+	}
+	emitln(sb.String())
 }
 
 var sp int
@@ -24,12 +41,12 @@ var variables = map[string]int{}
 
 func push(s string) {
 	sp++
-	emitln(fmt.Sprintf("\tpushq	%s", s))
+	emitOp("pushq", s)
 }
 
 func pop(s string) {
 	sp--
-	emitln(fmt.Sprintf("\tpopq	%s", s))
+	emitOp("popq", s)
 }
 
 var labelCnt int
@@ -142,22 +159,22 @@ func ifStmt(s *scanner) error {
 	}
 	expr(s, false)
 	pop("%rax")
-	emitln("	cmpq	$0, %rax")
+	emitOp("cmpq", "$0", "%rax")
 	l := newLabel()
-	emitln(fmt.Sprintf("	je	%s", l))
+	emitOp("je", l)
 	nt := block(s)
 	switch nt {
 	case "ELSE":
 		el := newLabel()
-		emitln(fmt.Sprintf("	jmp	%s", el))
-		emitln(l + ":")
+		emitOp("jmp", el)
+		emitOp(l + ":")
 		nt := block(s)
 		if nt != "ENDIF" {
 			return fmt.Errorf("expected ENDIF got %s", nt)
 		}
-		emitln(el + ":")
+		emitOp(el + ":")
 	case "ENDIF":
-		emitln(l + ":")
+		emitOp(l + ":")
 		return nil
 	default:
 		return fmt.Errorf("expected ENDIF or ELSE got %s", nt)
@@ -171,18 +188,18 @@ func whileStmt(s *scanner) error {
 		return errors.New("empty expression in IF condition")
 	}
 	stL := newLabel()
-	emitln(stL + ":")
+	emitOp(stL + ":")
 	expr(s, false)
 	pop("%rax")
-	emitln("	cmpq	$0, %rax")
+	emitOp("cmpq", "$0", "%rax")
 	l := newLabel()
-	emitln(fmt.Sprintf("	je	%s", l))
+	emitOp("je", l)
 	nt := block(s)
 	if nt != "ENDWHILE" {
 		return fmt.Errorf("invalid end condition: expected ENDWHILE got: %s", nt)
 	}
-	emitln("	jmp	" + stL)
-	emitln(l + ":")
+	emitOp("jmp", stL)
+	emitOp(l + ":")
 	return nil
 }
 
@@ -204,8 +221,8 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 		expr(s, false)
 		if op == "-" {
 			pop("%rdi")
-			emitln(`	movq	$-1, %rax`)
-			emitln(`	imulq	%rax, %rdi`)
+			emitOp("movq", "$-1", "%rax")
+			emitOp("imulq", "%rax", "%rdi")
 			push("%rdi")
 		}
 	case unicode.IsNumber(r):
@@ -234,7 +251,7 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 			expr(s, false)
 			if p, ok := variables[v]; ok {
 				pop("%rax")
-				emitln(fmt.Sprintf("	movq	%%rax, -%d(%%rbp)", 8*p))
+				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
 			} else {
 				variables[v] = sp
 			}
@@ -261,9 +278,9 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 			pop("%rdi")
 			pop("%rax")
 			if op == "+" {
-				emitln(`	addq 	%rdi, %rax`)
+				emitOp("addq", "%rdi", "%rax")
 			} else {
-				emitln(`	subq	%rdi, %rax`)
+				emitOp("subq", "%rdi", "%rax")
 			}
 			push("%rax")
 		case "*", "/":
@@ -272,10 +289,10 @@ func expr(s *scanner, onlyOne bool) (nextToken string, err error) {
 			pop("%rdi")
 			pop("%rax")
 			if op == "*" {
-				emitln(`	imulq 	%rdi, %rax`)
+				emitOp("imulq", "%rdi", "%rax")
 			} else {
-				emitln(`	cqto`)
-				emitln(`	idivq	%rdi`)
+				emitOp("cqto")
+				emitOp("idivq", "%rdi")
 			}
 			push("%rax")
 		case "\n", "", ")":
@@ -301,12 +318,6 @@ func block(s *scanner) (nextToken string) {
 			s.Pop()
 		}
 	}
-	// pop("%rax")
-	// emitln(`	movq	%rbp, %rdi`)
-	// emitln(fmt.Sprintf(`	movq	$%d, %%rbx`, 8*st))
-	// emitln(`	subq	%rbx, %rdi`)
-	// emitln(`	movq	%rdi, %rsp`)
-	// push("%rax")
 	return
 }
 
@@ -325,8 +336,8 @@ eval:
 	ss := &scanner{s: s}
 	block(ss)
 	pop("%rax")
-	emitln(`	movq %rbp, %rsp`)
-	emitln(`	popq %rbp`)
+	emitOp("movq", "%rbp", "%rsp")
+	emitOp("popq", "%rbp")
 	emitln(`	retq
 .Lfunc_end0:
 	.size	eval, .Lfunc_end0-eval
