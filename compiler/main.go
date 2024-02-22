@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 var lines []string
@@ -56,125 +54,28 @@ func newLabel() string {
 	return fmt.Sprintf("JL%d", labelCnt)
 }
 
-type scanner struct {
-	s    *bufio.Scanner
-	next string
-}
-
-func newScanner(s *bufio.Scanner) *scanner {
-	s.Split(bufio.ScanRunes)
-	return &scanner{s: s, next: ""}
-}
-
-func (s *scanner) Peek() string {
-	if s.next == "" {
-		s.advance()
-	}
-	return s.next
-}
-
-func (s *scanner) Pop() string {
-	t := s.Peek()
-	s.advance()
-	return t
-}
-
-func (s *scanner) advance() {
-	s.s.Scan()
-	s.next = s.s.Text()
-}
-
-func getNumber(s *scanner) (n int, err error) {
-	skipSpaces(s)
-	var started bool
-	var isEOF bool
-	for {
-		c := s.Peek()
-		if c == "" {
-			isEOF = true
-			break
-		}
-		if c[0] >= '0' && c[0] <= '9' {
-			started = true
-			n = n*10 + int(c[0]-'0')
-			s.Pop()
-			continue
-		}
-		break
-	}
-	if !started {
-		if isEOF {
-			return 0, io.EOF
-		}
-		return 0, errors.New("NAN")
-	}
-	return n, nil
-}
-
-func getVariable(s *scanner) (res string, err error) {
-	var started bool
-	var isEOF bool
-	for {
-		c := s.Peek()
-		if c == "" {
-			isEOF = true
-			break
-		}
-		r, _ := utf8.DecodeRuneInString(c)
-		if unicode.IsDigit(r) || unicode.IsLetter(r) || c == "_" {
-			started = true
-			res += c
-			s.Pop()
-			continue
-		}
-		break
-	}
-	if !started {
-		if isEOF {
-			return "", io.EOF
-		}
-		return "", errors.New("not a variable")
-	}
-	return res, nil
-}
-
-func skipSpaces(s *scanner) {
-	for {
-		c := s.Peek()
-		if c == "" {
-			return
-		} else if unicode.IsSpace(rune(c[0])) && c != "\n" {
-			s.Pop()
-			continue
-		} else {
-			return
-		}
-	}
-}
-
-func ifStmt(s *scanner) error {
-	skipSpaces(s)
-	if s.Peek() == "\n" || s.Peek() == "" {
+func ifStmt(l *lexer) error {
+	if l.Peek().T == NewLine || l.Peek().T == Empty {
 		return errors.New("empty expression in IF condition")
 	}
-	expr(s, -1)
+	expr(l, -1)
 	pop("%rax")
 	emitOp("cmpq", "$0", "%rax")
-	l := newLabel()
-	emitOp("je", l)
-	nt := block(s)
+	elseL := newLabel()
+	emitOp("je", elseL)
+	nt := block(l)
 	switch nt {
 	case "ELSE":
-		el := newLabel()
-		emitOp("jmp", el)
-		emitOp(l + ":")
-		nt := block(s)
+		endL := newLabel()
+		emitOp("jmp", endL)
+		emitOp(elseL + ":")
+		nt := block(l)
 		if nt != "ENDIF" {
 			return fmt.Errorf("expected ENDIF got %s", nt)
 		}
-		emitOp(el + ":")
+		emitOp(endL + ":")
 	case "ENDIF":
-		emitOp(l + ":")
+		emitOp(elseL + ":")
 		return nil
 	default:
 		return fmt.Errorf("expected ENDIF or ELSE got %s", nt)
@@ -182,24 +83,23 @@ func ifStmt(s *scanner) error {
 	return nil
 }
 
-func whileStmt(s *scanner) error {
-	skipSpaces(s)
-	if s.Peek() == "\n" || s.Peek() == "" {
+func whileStmt(l *lexer) error {
+	if l.Peek().T == NewLine || l.Peek().T == Empty {
 		return errors.New("empty expression in IF condition")
 	}
 	stL := newLabel()
 	emitOp(stL + ":")
-	expr(s, -1)
+	expr(l, -1)
 	pop("%rax")
 	emitOp("cmpq", "$0", "%rax")
-	l := newLabel()
-	emitOp("je", l)
-	nt := block(s)
+	el := newLabel()
+	emitOp("je", el)
+	nt := block(l)
 	if nt != "ENDWHILE" {
 		return fmt.Errorf("invalid end condition: expected ENDWHILE got: %s", nt)
 	}
 	emitOp("jmp", stL)
-	emitOp(l + ":")
+	emitOp(el + ":")
 	return nil
 }
 
@@ -261,52 +161,47 @@ var bindingPower = map[string]int{
 	"":   -100,
 }
 
-func expr(s *scanner, power int) (nextToken string, err error) {
-	skipSpaces(s)
-	if s.Peek() == "" || s.Peek() == "\n" {
+func expr(l *lexer, power int) (nextToken string, err error) {
+	if l.Peek().T == Empty || l.Peek().T == NewLine {
 		return "", io.EOF
 	}
-	r, _ := utf8.DecodeRuneInString(s.Peek())
-	switch {
-	case r == '(':
-		s.Pop()
-		expr(s, -1)
-		if s.Pop() != ")" {
+	switch l.Peek().T {
+	case OpenBracket:
+		l.Pop()
+		expr(l, -1)
+		if l.Pop().T != CloseBracket {
 			return "", errors.New("invalid paranthesis")
 		}
-	case r == '+' || r == '-':
-		op := s.Pop()
-		expr(s, power)
-		if op == "-" {
+	case Op:
+		op := l.Pop()
+		if op.V != "+" && op.V != "-" {
+			return "", fmt.Errorf("invalid op: %+v", op)
+		}
+		expr(l, power)
+		if op.V == "-" {
 			pop("%rdi")
 			emitOp("movq", "$-1", "%rax")
 			emitOp("imulq", "%rax", "%rdi")
 			push("%rdi")
 		}
-	case unicode.IsNumber(r):
-		n, err := getNumber(s)
-		if err != nil {
-			return "", err
-		}
-		push(fmt.Sprintf("$%d", n))
-	case unicode.IsLetter(r):
-		v, err := getVariable(s)
-		if err != nil {
-			return "", err
-		}
+	case Number:
+		push(fmt.Sprintf("$%s", l.Peek().V))
+		l.Pop()
+	case Identifier:
+		v := l.Peek().V
+		l.Pop()
 		if v == "IF" {
-			return "", ifStmt(s)
+			return "", ifStmt(l)
 		}
 		if v == "WHILE" {
-			return "", whileStmt(s)
+			return "", whileStmt(l)
 		}
 		if v == "ENDIF" || v == "ELSE" || v == "ENDWHILE" {
 			return v, nil
 		}
-		skipSpaces(s)
-		if s.Peek() == "=" {
-			s.Pop()
-			expr(s, -1)
+		if l.Peek().T == Op && l.Peek().V == "=" {
+			l.Pop()
+			expr(l, -1)
 			if p, ok := variables[v]; ok {
 				pop("%rax")
 				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
@@ -321,21 +216,26 @@ func expr(s *scanner, power int) (nextToken string, err error) {
 			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
 		}
 	default:
-		return "", fmt.Errorf("invalid token %s", s.Peek())
+		return "", fmt.Errorf("invalid token %v", l.Peek())
 	}
 	for {
-		skipSpaces(s)
-		op := s.Peek()
-		p, ok := bindingPower[op]
+		op := l.Peek()
+		if op.T == Empty || op.T == NewLine || op.T == CloseBracket {
+			return "", nil
+		}
+		if op.T != Op {
+			return "", fmt.Errorf("invalid operation: %+v", op)
+		}
+		p, ok := bindingPower[op.V]
 		if !ok {
-			return "", fmt.Errorf("invalid operation: %s", op)
+			return "", fmt.Errorf("invalid operation: %+v", op)
 		}
 		if p <= power {
 			return "", nil
 		}
-		s.Pop()
-		expr(s, p)
-		switch op {
+		l.Pop()
+		expr(l, p)
+		switch op.V {
 		case "+":
 			addOp()
 		case "-":
@@ -346,14 +246,16 @@ func expr(s *scanner, power int) (nextToken string, err error) {
 			divOp()
 		case "^":
 			expOp()
+		default:
+			return "", fmt.Errorf("invalid operation: %+v", op)
 		}
 	}
 }
 
-func block(s *scanner) (nextToken string) {
+func block(l *lexer) (nextToken string) {
 	var err error
-	for s.Peek() != "" {
-		nextToken, err = expr(s, -1)
+	for l.Peek().T != Empty {
+		nextToken, err = expr(l, -1)
 		if err != nil && err != io.EOF {
 			fmt.Println("err:", err)
 			return
@@ -361,8 +263,8 @@ func block(s *scanner) (nextToken string) {
 		if nextToken != "" {
 			break
 		}
-		if s.Peek() == "\n" {
-			s.Pop()
+		if l.Peek().T == NewLine {
+			l.Pop()
 		}
 	}
 	return
@@ -379,9 +281,8 @@ eval:
 	movq	%rsp, %rbp
 	`)
 	s := bufio.NewScanner(os.Stdin)
-	s.Split(bufio.ScanRunes)
-	ss := &scanner{s: s}
-	block(ss)
+	l := newLexer(s)
+	block(l)
 	pop("%rax")
 	emitOp("movq", "%rbp", "%rsp")
 	emitOp("popq", "%rbp")
