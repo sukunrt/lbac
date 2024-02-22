@@ -55,6 +55,7 @@ func newLabel() string {
 }
 
 func ifStmt(l *lexer) error {
+	l.Pop()
 	if l.Peek().T == NewLine || l.Peek().T == Empty {
 		return errors.New("empty expression in IF condition")
 	}
@@ -63,14 +64,15 @@ func ifStmt(l *lexer) error {
 	emitOp("cmpq", "$0", "%rax")
 	elseL := newLabel()
 	emitOp("je", elseL)
-	nt := block(l)
-	switch nt {
+	block(l)
+	x := l.Pop().V
+	switch x {
 	case "ELSE":
 		endL := newLabel()
 		emitOp("jmp", endL)
 		emitOp(elseL + ":")
-		nt := block(l)
-		if nt != "ENDIF" {
+		block(l)
+		if nt := l.Pop().V; nt != "ENDIF" {
 			return fmt.Errorf("expected ENDIF got %s", nt)
 		}
 		emitOp(endL + ":")
@@ -78,12 +80,13 @@ func ifStmt(l *lexer) error {
 		emitOp(elseL + ":")
 		return nil
 	default:
-		return fmt.Errorf("expected ENDIF or ELSE got %s", nt)
+		return fmt.Errorf("expected ENDIF or ELSE got %s", x)
 	}
 	return nil
 }
 
 func whileStmt(l *lexer) error {
+	l.Pop()
 	if l.Peek().T == NewLine || l.Peek().T == Empty {
 		return errors.New("empty expression in IF condition")
 	}
@@ -94,8 +97,8 @@ func whileStmt(l *lexer) error {
 	emitOp("cmpq", "$0", "%rax")
 	el := newLabel()
 	emitOp("je", el)
-	nt := block(l)
-	if nt != "ENDWHILE" {
+	block(l)
+	if nt := l.Pop().V; nt != "ENDWHILE" {
 		return fmt.Errorf("invalid end condition: expected ENDWHILE got: %s", nt)
 	}
 	emitOp("jmp", stL)
@@ -161,21 +164,21 @@ var bindingPower = map[string]int{
 	"":   -100,
 }
 
-func expr(l *lexer, power int) (nextToken string, err error) {
+func expr(l *lexer, power int) (err error) {
 	if l.Peek().T == Empty || l.Peek().T == NewLine {
-		return "", io.EOF
+		return io.EOF
 	}
 	switch l.Peek().T {
 	case OpenBracket:
 		l.Pop()
 		expr(l, -1)
 		if l.Pop().T != CloseBracket {
-			return "", errors.New("invalid paranthesis")
+			return errors.New("invalid paranthesis")
 		}
 	case Op:
 		op := l.Pop()
 		if op.V != "+" && op.V != "-" {
-			return "", fmt.Errorf("invalid op: %+v", op)
+			return fmt.Errorf("invalid op: %+v", op)
 		}
 		expr(l, power)
 		if op.V == "-" {
@@ -190,15 +193,6 @@ func expr(l *lexer, power int) (nextToken string, err error) {
 	case Identifier:
 		v := l.Peek().V
 		l.Pop()
-		if v == "IF" {
-			return "", ifStmt(l)
-		}
-		if v == "WHILE" {
-			return "", whileStmt(l)
-		}
-		if v == "ENDIF" || v == "ELSE" || v == "ENDWHILE" {
-			return v, nil
-		}
 		if l.Peek().T == Op && l.Peek().V == "=" {
 			l.Pop()
 			expr(l, -1)
@@ -208,30 +202,30 @@ func expr(l *lexer, power int) (nextToken string, err error) {
 			} else {
 				variables[v] = sp
 			}
-			return "", nil
+			return nil
 		} else {
 			if _, ok := variables[v]; !ok {
-				return "", fmt.Errorf("invalid variable %s", v)
+				return fmt.Errorf("invalid variable %s", v)
 			}
 			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
 		}
 	default:
-		return "", fmt.Errorf("invalid token %v", l.Peek())
+		return fmt.Errorf("invalid token %v", l.Peek())
 	}
 	for {
 		op := l.Peek()
 		if op.T == Empty || op.T == NewLine || op.T == CloseBracket {
-			return "", nil
+			return nil
 		}
 		if op.T != Op {
-			return "", fmt.Errorf("invalid operation: %+v", op)
+			return fmt.Errorf("invalid operation: %+v", op)
 		}
 		p, ok := bindingPower[op.V]
 		if !ok {
-			return "", fmt.Errorf("invalid operation: %+v", op)
+			return fmt.Errorf("invalid operation: %+v", op)
 		}
 		if p <= power {
-			return "", nil
+			return nil
 		}
 		l.Pop()
 		expr(l, p)
@@ -247,27 +241,46 @@ func expr(l *lexer, power int) (nextToken string, err error) {
 		case "^":
 			expOp()
 		default:
-			return "", fmt.Errorf("invalid operation: %+v", op)
+			return fmt.Errorf("invalid operation: %+v", op)
 		}
 	}
 }
 
-func block(l *lexer) (nextToken string) {
-	var err error
-	for l.Peek().T != Empty {
-		nextToken, err = expr(l, -1)
-		if err != nil && err != io.EOF {
-			fmt.Println("err:", err)
-			return
-		}
-		if nextToken != "" {
-			break
-		}
-		if l.Peek().T == NewLine {
-			l.Pop()
+func statement(l *lexer) (endBlock bool, err error) {
+	if l.Peek().T == NewLine {
+		l.Pop()
+	}
+
+	t := l.Peek()
+	switch t.T {
+	case Identifier:
+		switch t.V {
+		case "IF":
+			ifStmt(l)
+		case "WHILE":
+			whileStmt(l)
+		case "ENDIF", "ENDWHILE", "ELSE":
+			return true, nil
 		}
 	}
-	return
+	err = expr(l, -1)
+	if err != nil && err != io.EOF {
+		fmt.Println(err)
+		return false, err
+	}
+	return false, nil
+}
+
+func block(l *lexer) {
+	for l.Peek().T != Empty {
+		endBlock, err := statement(l)
+		if endBlock {
+			return
+		}
+		if err != nil && err != io.EOF {
+			return
+		}
+	}
 }
 
 func main() {
