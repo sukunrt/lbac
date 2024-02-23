@@ -267,22 +267,10 @@ func expr(l *lexer, power int) (err error) {
 	case Identifier:
 		v := l.Peek().V
 		l.Pop()
-		if l.Peek().T == Op && l.Peek().V == "=" {
-			l.Pop()
-			expr(l, -1)
-			if p, ok := variables[v]; ok {
-				pop("%rax")
-				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
-			} else {
-				variables[v] = sp
-			}
-			return nil
-		} else {
-			if _, ok := variables[v]; !ok {
-				return fmt.Errorf("invalid variable %s", v)
-			}
-			push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
+		if _, ok := variables[v]; !ok {
+			return fmt.Errorf("invalid variable %s", v)
 		}
+		push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
 	default:
 		return fmt.Errorf("invalid token %v", l.Peek())
 	}
@@ -343,10 +331,27 @@ func statement(l *lexer) (endBlock bool, err error) {
 		switch t.V {
 		case "IF":
 			ifStmt(l)
+			return
 		case "WHILE":
 			whileStmt(l)
+			return
 		case "ENDIF", "ENDWHILE", "ELSE":
 			return true, nil
+		}
+		v := t.V
+		l.Pop()
+		if l.Peek().V == "=" {
+			l.Pop()
+			expr(l, -1)
+			if p, ok := variables[v]; ok {
+				pop("%rax")
+				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
+			} else {
+				variables[v] = sp
+			}
+			return
+		} else {
+			l.Push(t)
 		}
 	}
 	err = expr(l, -1)
