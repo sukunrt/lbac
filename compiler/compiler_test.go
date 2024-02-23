@@ -91,6 +91,28 @@ func TestCorrectness(t *testing.T) {
 			`,
 			output: 5,
 		},
+		{
+			input: `
+			x=100
+			y=5
+			WHILE x > y
+				x = x-1
+			ENDWHILE
+			x
+			`,
+			output: 5,
+		},
+		{
+			input: `
+			x=1024
+			y=2
+			WHILE x > y
+				y = y * 2
+			ENDWHILE
+			y
+			`,
+			output: 1024,
+		},
 	}
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {

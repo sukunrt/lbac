@@ -152,16 +152,90 @@ func expOp() {
 	push("%rax")
 }
 
+func lessOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("jge", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
+func lessEqOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("jg", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
+func greaterOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("jle", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
+func greaterEqOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("jl", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
+func eqOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("jne", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
+func notEqOp() {
+	nl := newLabel()
+	pop("%rdi")
+	pop("%rax")
+	push("$0")
+	emitOp("cmpq", "%rdi", "%rax")
+	emitOp("je", nl)
+	pop("%rax")
+	push("$1")
+	emitOp(nl + ":")
+}
+
 var bindingPower = map[string]int{
-	"+": 10,
-	"-": 10,
-	"*": 20,
-	"/": 20,
-	"^": 30,
-	// Terminating symbols
-	")":  -100,
-	"\n": -100,
-	"":   -100,
+	">":  10,
+	">=": 10,
+	"<":  10,
+	"<=": 10,
+	"==": 10,
+	"!=": 10,
+	"+":  20,
+	"-":  20,
+	"*":  30,
+	"/":  30,
+	"^":  40,
 }
 
 func expr(l *lexer, power int) (err error) {
@@ -240,6 +314,18 @@ func expr(l *lexer, power int) (err error) {
 			divOp()
 		case "^":
 			expOp()
+		case "<":
+			lessOp()
+		case "<=":
+			lessEqOp()
+		case ">":
+			greaterOp()
+		case ">=":
+			greaterEqOp()
+		case "==":
+			eqOp()
+		case "!=":
+			notEqOp()
 		default:
 			return fmt.Errorf("invalid operation: %+v", op)
 		}

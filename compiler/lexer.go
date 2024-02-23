@@ -67,8 +67,20 @@ func (l *lexer) advance() {
 		l.next = token{}
 	case l.s.Text() == "\n":
 		l.next = token{T: NewLine}
-	case strings.Contains("*+-/^=", l.s.Text()):
-		l.next = token{T: Op, V: l.s.Text()}
+	case strings.Contains("*+-/^=<>!", l.s.Text()):
+		if l.s.Text() == "<" || l.s.Text() == ">" || l.s.Text() == "=" || l.s.Text() == "!" {
+			s := l.s.Text()
+			scanAhead = false
+			l.s.Scan()
+			if l.s.Text() == "=" {
+				l.s.Scan()
+				l.next = token{T: Op, V: s + "="}
+			} else {
+				l.next = token{T: Op, V: s}
+			}
+		} else {
+			l.next = token{T: Op, V: l.s.Text()}
+		}
 	case l.s.Text() == "(":
 		l.next = token{T: OpenBracket}
 	case l.s.Text() == ")":
