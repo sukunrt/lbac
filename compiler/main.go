@@ -152,6 +152,13 @@ func expOp() {
 	push("%rax")
 }
 
+func negOp() {
+	pop("%rdi")
+	emitOp("movq", "$-1", "%rax")
+	emitOp("imulq", "%rax", "%rdi")
+	push("%rdi")
+}
+
 func lessOp() {
 	nl := newLabel()
 	pop("%rdi")
@@ -224,6 +231,16 @@ func notEqOp() {
 	emitOp(nl + ":")
 }
 
+func varAssign(l *lexer, v string) {
+	expr(l, -1)
+	if p, ok := variables[v]; ok {
+		pop("%rax")
+		emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
+	} else {
+		variables[v] = sp
+	}
+}
+
 var bindingPower = map[string]int{
 	">":  10,
 	">=": 10,
@@ -256,17 +273,12 @@ func expr(l *lexer, power int) (err error) {
 		}
 		expr(l, power)
 		if op.V == "-" {
-			pop("%rdi")
-			emitOp("movq", "$-1", "%rax")
-			emitOp("imulq", "%rax", "%rdi")
-			push("%rdi")
+			negOp()
 		}
 	case Number:
-		push(fmt.Sprintf("$%s", l.Peek().V))
-		l.Pop()
+		push(fmt.Sprintf("$%s", l.Pop().V))
 	case Identifier:
-		v := l.Peek().V
-		l.Pop()
+		v := l.Pop().V
 		if _, ok := variables[v]; !ok {
 			return fmt.Errorf("invalid variable %s", v)
 		}
@@ -342,17 +354,10 @@ func statement(l *lexer) (endBlock bool, err error) {
 		l.Pop()
 		if l.Peek().V == "=" {
 			l.Pop()
-			expr(l, -1)
-			if p, ok := variables[v]; ok {
-				pop("%rax")
-				emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
-			} else {
-				variables[v] = sp
-			}
+			varAssign(l, v)
 			return
-		} else {
-			l.Push(t)
 		}
+		l.Push(t)
 	}
 	err = expr(l, -1)
 	if err != nil && err != io.EOF {
