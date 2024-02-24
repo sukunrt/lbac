@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -17,6 +18,7 @@ const (
 	CloseBracket
 	Number
 	Identifier
+	Keyword
 	Unknown
 )
 
@@ -71,40 +73,43 @@ func (l *lexer) advance() {
 		l.s.Scan()
 	}
 	scanAhead := true
+	n := l.s.Text()
 	switch {
-	case l.s.Text() == "":
+	case n == "":
 		next = token{}
-	case l.s.Text() == "\n":
+	case n == "\n":
 		next = token{T: NewLine}
-	case strings.Contains("*+-/^=<>!", l.s.Text()):
-		if l.s.Text() == "<" || l.s.Text() == ">" || l.s.Text() == "=" || l.s.Text() == "!" {
-			s := l.s.Text()
-			scanAhead = false
+	case strings.Contains("=!<>", n):
+		scanAhead = false
+		l.s.Scan()
+		if l.s.Text() == "=" {
 			l.s.Scan()
-			if l.s.Text() == "=" {
-				l.s.Scan()
-				next = token{T: Op, V: s + "="}
-			} else {
-				next = token{T: Op, V: s}
-			}
+			next = token{T: Op, V: n + "="}
 		} else {
-			next = token{T: Op, V: l.s.Text()}
+			next = token{T: Op, V: n}
 		}
-	case l.s.Text() == "(":
+	case strings.Contains("*+-/^", n):
+		next = token{T: Op, V: n}
+	case n == "(":
 		next = token{T: OpenBracket}
-	case l.s.Text() == ")":
+	case n == ")":
 		next = token{T: CloseBracket}
-	case strings.Contains("0123456789", l.s.Text()):
+	case strings.Contains("0123456789", n):
 		scanAhead = false
 		next = token{T: Number, V: l.parseNum()}
 	default:
-		r, _ := utf8.DecodeLastRuneInString(l.s.Text())
+		r, _ := utf8.DecodeLastRuneInString(n)
 		if !(unicode.IsLetter(r) || r == '_') {
-			next = token{T: Unknown, V: l.s.Text()}
+			next = token{T: Unknown, V: n}
 			break
 		}
 		scanAhead = false
-		next = token{T: Identifier, V: l.parseIdentifier()}
+		s := l.parseIdentifier()
+		if isKeyword(s) {
+			next = token{T: Keyword, V: s}
+		} else {
+			next = token{T: Identifier, V: s}
+		}
 	}
 	if scanAhead {
 		l.s.Scan()
@@ -141,4 +146,8 @@ func (l *lexer) parseIdentifier() string {
 		l.sb.WriteString(c)
 	}
 	return l.sb.String()
+}
+
+func isKeyword(s string) bool {
+	return slices.Contains([]string{"IF", "ELSE", "ENDIF", "WHILE", "ENDWHILE", "FN", "ENDFN"}, s)
 }

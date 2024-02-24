@@ -241,6 +241,10 @@ func varAssign(l *lexer, v string) {
 	}
 }
 
+func funcDecl(l *lexer) {
+	l.Pop()
+}
+
 var bindingPower = map[string]int{
 	">":  10,
 	">=": 10,
@@ -339,17 +343,20 @@ func statement(l *lexer) (endBlock bool, err error) {
 
 	t := l.Peek()
 	switch t.T {
-	case Identifier:
+	case Keyword:
 		switch t.V {
 		case "IF":
 			ifStmt(l)
-			return
 		case "WHILE":
 			whileStmt(l)
-			return
-		case "ENDIF", "ENDWHILE", "ELSE":
-			return true, nil
+		case "FN":
+			funcDecl(l)
+		case "ENDIF", "ENDWHILE", "ELSE", "ENDFN":
+			endBlock = true
+			err = nil
 		}
+		return
+	case Identifier:
 		v := t.V
 		l.Pop()
 		if l.Peek().V == "=" {
