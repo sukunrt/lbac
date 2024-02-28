@@ -241,8 +241,50 @@ func varAssign(l *lexer, v string) {
 	}
 }
 
-func funcDecl(l *lexer) {
+func newScope(args []token) map[string]int {
+	n := len(args)
+	scope := make(map[string]int)
+	for i, a := range args {
+		// For rbp relative addressing there are two values between rbp and the param start
+		// These are the base pointer and the return address of the caller
+		scope[a.V] = n - (i + 1) + 2
+	}
+	return scope
+}
+
+func funcDecl(l *lexer) error {
+	fn := l.Pop().V
+	if l.Peek().T != Identifier {
+		return fmt.Errorf("expected identifier, got: %v", l.Peek().V)
+	}
 	l.Pop()
+	if l.Peek().T != OpenBracket {
+		return fmt.Errorf("expected (, got: %v", l.Peek().V)
+	}
+	l.Pop()
+	emitln(fn + ":")
+
+	args := make([]token, 0, 3)
+	for l.Peek().T != CloseBracket {
+		if l.Peek().T != Identifier {
+			return fmt.Errorf("expected identifier or ), got: %v", l.Peek().V)
+		}
+		args = append(args, l.Peek())
+		l.Pop()
+	}
+	l.Pop()
+	scope := newScope(args)
+	prevScope := variables
+	prevSP := sp
+	variables = scope
+	sp = 0
+	block(l)
+	variables = prevScope
+	sp = prevSP
+	if l.Pop().V != "ENDFN" {
+		return fmt.Errorf("expected ENDFN, got: %v", l.Pop().V)
+	}
+	return nil
 }
 
 var bindingPower = map[string]int{
@@ -350,7 +392,10 @@ func statement(l *lexer) (endBlock bool, err error) {
 		case "WHILE":
 			whileStmt(l)
 		case "FN":
-			funcDecl(l)
+			err = funcDecl(l)
+			if err != nil {
+				fmt.Println(err)
+			}
 		case "ENDIF", "ENDWHILE", "ELSE", "ENDFN":
 			endBlock = true
 			err = nil
