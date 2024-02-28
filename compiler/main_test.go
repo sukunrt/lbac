@@ -22,15 +22,15 @@ func TestNewScope(t *testing.T) {
 		{
 			args: []string{"a", "b", "c"},
 			result: map[string]int{
-				"c": 2,
-				"b": 3,
-				"a": 4,
+				"c": -2,
+				"b": -3,
+				"a": -4,
 			},
 		},
 		{
 			args: []string{"a"},
 			result: map[string]int{
-				"a": 2,
+				"a": -2,
 			},
 		},
 	}

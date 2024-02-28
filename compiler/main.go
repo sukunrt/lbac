@@ -232,10 +232,14 @@ func notEqOp() {
 }
 
 func varAssign(l *lexer, v string) {
-	expr(l, -1)
+	if l.Peek().T == Keyword && l.Peek().V == "CALL" {
+		callExpr(l)
+	} else {
+		expr(l, -1)
+	}
 	if p, ok := variables[v]; ok {
 		pop("%rax")
-		emitOp("movq", "%rax", fmt.Sprintf("-%d(%%rbp)", 8*p))
+		emitOp("movq", "%rax", fmt.Sprintf("%d(%%rbp)", -8*p))
 	} else {
 		variables[v] = sp
 	}
@@ -247,23 +251,26 @@ func newScope(args []token) map[string]int {
 	for i, a := range args {
 		// For rbp relative addressing there are two values between rbp and the param start
 		// These are the base pointer and the return address of the caller
-		scope[a.V] = n - (i + 1) + 2
+		scope[a.V] = -(n - (i + 1) + 2)
 	}
 	return scope
 }
 
 func funcDecl(l *lexer) error {
-	fn := l.Pop().V
+	l.Pop()
+	fn := l.Peek().V
 	if l.Peek().T != Identifier {
 		return fmt.Errorf("expected identifier, got: %v", l.Peek().V)
 	}
 	l.Pop()
+	endFn := "end" + fn
+	emitOp("jmp", endFn)
+	emitln(fn + ":")
+
 	if l.Peek().T != OpenBracket {
 		return fmt.Errorf("expected (, got: %v", l.Peek().V)
 	}
 	l.Pop()
-	emitln(fn + ":")
-
 	args := make([]token, 0, 3)
 	for l.Peek().T != CloseBracket {
 		if l.Peek().T != Identifier {
@@ -277,13 +284,21 @@ func funcDecl(l *lexer) error {
 	prevScope := variables
 	prevSP := sp
 	variables = scope
+	push("%rbp")
 	sp = 0
+	emitOp("movq", "%rsp", "%rbp")
 	block(l)
-	variables = prevScope
-	sp = prevSP
 	if l.Pop().V != "ENDFN" {
 		return fmt.Errorf("expected ENDFN, got: %v", l.Pop().V)
 	}
+	pop("%rax")
+	emitOp("movq", "%rbp", "%rsp")
+	pop("%rbp")
+	emitOp("retq")
+	variables = prevScope
+	sp = prevSP
+
+	emitOp(endFn + ":")
 	return nil
 }
 
@@ -328,9 +343,9 @@ func expr(l *lexer, power int) (err error) {
 		if _, ok := variables[v]; !ok {
 			return fmt.Errorf("invalid variable %s", v)
 		}
-		push(fmt.Sprintf("-%d(%%rbp)", variables[v]*8))
+		push(fmt.Sprintf("%d(%%rbp)", -variables[v]*8))
 	default:
-		return fmt.Errorf("invalid token %v", l.Peek())
+		return fmt.Errorf("invalid token %+v", l.Peek())
 	}
 	for {
 		op := l.Peek()
@@ -378,6 +393,38 @@ func expr(l *lexer, power int) (err error) {
 	}
 }
 
+func callExpr(l *lexer) (err error) {
+	l.Pop()
+	fn := l.Pop().V
+	if t := l.Pop(); t.T != OpenBracket {
+		return fmt.Errorf("expected Open Bracket got: %v", t.V)
+	}
+	cnt := 0
+	for ; l.Peek().T == Identifier || l.Peek().T == Number; l.Pop() {
+		t := l.Peek()
+		switch t.T {
+		case Identifier:
+			if _, ok := variables[t.V]; !ok {
+				return fmt.Errorf("invalid variable: %v", t)
+			}
+			push(fmt.Sprintf("-%d(%%rbp)", variables[l.Peek().V]*8))
+		case Number:
+			push(fmt.Sprintf("$%s", t.V))
+		}
+		cnt++
+	}
+	if l.Peek().T != CloseBracket {
+		return fmt.Errorf("expected close bracket: got %v", l.Peek())
+	}
+	l.Pop()
+	emitOp("callq", fn)
+	for i := 0; i < cnt; i++ {
+		pop("%rdx")
+	}
+	push("%rax")
+	return nil
+}
+
 func statement(l *lexer) (endBlock bool, err error) {
 	if l.Peek().T == NewLine {
 		l.Pop()
@@ -393,6 +440,11 @@ func statement(l *lexer) (endBlock bool, err error) {
 			whileStmt(l)
 		case "FN":
 			err = funcDecl(l)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "CALL":
+			err = callExpr(l)
 			if err != nil {
 				fmt.Println(err)
 			}

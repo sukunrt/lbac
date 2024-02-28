@@ -115,16 +115,51 @@ func TestCorrectness(t *testing.T) {
 		},
 		{
 			input: `
-			x=1024
-			y=2
-			WHILE x > y
-				y = y * 2
-			ENDWHILE
+			x=100
+			y=1
+			z=10
 			FN hello(x y z)
+				x+y+z
 			ENDFN
-			y
+			CALL hello(x y z)
 			`,
-			output: 1024,
+			output: 111,
+		},
+		{
+			input: `
+			x=10
+			y=1
+			FN sum(st end)
+				z = 0
+				WHILE st < end
+					z = z + st
+					st = st + 1
+				ENDWHILE
+				z
+			ENDFN
+			CALL sum(y x)
+			`,
+			output: 45,
+		},
+		{
+			input: `
+			FN fib(i)
+				f = 0
+				IF i < 2
+					f=i
+				ELSE
+					x = i-1
+					y = i-2
+					a = CALL fib(x)
+					b = CALL fib(y)
+					f = a+b
+				ENDIF
+				f
+			ENDFN
+			z = CALL fib(6)
+			z
+			`,
+			output: 8,
 		},
 	}
 	for i, tc := range cases {

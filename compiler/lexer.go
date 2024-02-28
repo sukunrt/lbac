@@ -149,5 +149,5 @@ func (l *lexer) parseIdentifier() string {
 }
 
 func isKeyword(s string) bool {
-	return slices.Contains([]string{"IF", "ELSE", "ENDIF", "WHILE", "ENDWHILE", "FN", "ENDFN"}, s)
+	return slices.Contains([]string{"IF", "ELSE", "ENDIF", "WHILE", "ENDWHILE", "FN", "ENDFN", "CALL"}, s)
 }

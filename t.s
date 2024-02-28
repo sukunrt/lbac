@@ -7,33 +7,69 @@ eval:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	
-	pushq	$1024
+	jmp	endfib
+fib:
+	pushq	%rbp
+	movq	%rsp, %rbp
+	pushq	$0
+	pushq	16(%rbp)
 	pushq	$2
-JL0:
-	pushq	-8(%rbp)
-	pushq	-16(%rbp)
 	popq	%rdi
 	popq	%rax
 	pushq	$0
 	cmpq	%rdi, %rax
-	jle	JL1
+	jge	JL0
 	popq	%rax
 	pushq	$1
-JL1:
+JL0:
 	popq	%rax
 	cmpq	$0, %rax
-	je	JL2
-	pushq	-16(%rbp)
+	je	JL1
+	pushq	16(%rbp)
+	popq	%rax
+	movq	%rax, -8(%rbp)
+	jmp	JL2
+JL1:
+	pushq	16(%rbp)
+	pushq	$1
+	popq	%rdi
+	popq	%rax
+	subq	%rdi, %rax
+	pushq	%rax
+	pushq	16(%rbp)
 	pushq	$2
 	popq	%rdi
 	popq	%rax
-	imulq	%rdi, %rax
+	subq	%rdi, %rax
+	pushq	%rax
+	pushq	-16(%rbp)
+	callq	fib
+	popq	%rdx
+	pushq	%rax
+	pushq	-24(%rbp)
+	callq	fib
+	popq	%rdx
+	pushq	%rax
+	pushq	-32(%rbp)
+	pushq	-40(%rbp)
+	popq	%rdi
+	popq	%rax
+	addq	%rdi, %rax
 	pushq	%rax
 	popq	%rax
-	movq	%rax, -16(%rbp)
-	jmp	JL0
+	movq	%rax, -8(%rbp)
 JL2:
-	pushq	-16(%rbp)
+	pushq	-8(%rbp)
+	popq	%rax
+	movq	%rbp, %rsp
+	popq	%rbp
+	retq
+endfib:
+	pushq	$6
+	callq	fib
+	popq	%rdx
+	pushq	%rax
+	pushq	-8(%rbp)
 	popq	%rax
 	movq	%rbp, %rsp
 	popq	%rbp
